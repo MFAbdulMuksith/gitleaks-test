@@ -1,1 +1,0 @@
-NEW_SECRET=sk_live_testtest12345678

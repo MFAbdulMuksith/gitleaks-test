@@ -18,4 +18,4 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2wq!
+        uses: gitleaks/gitleaks-action@v2
