@@ -1,0 +1,13 @@
+title = "Custom Gitleaks Rules"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "company-api-key"
+
+description = "Company API Key"
+
+regex = '''COMPANY_API_KEY_[A-Za-z0-9]{15,}'''
+
+tags = ["custom"]
