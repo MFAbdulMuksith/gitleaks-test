@@ -1,0 +1,28 @@
+name: Gitleaks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history — required for gitleaks git .
+
+      - name: Run Gitleaks
+        run: bash scripts/gitleaks-scan.sh
+
+      - name: Upload SARIF to Security tab
+        if: always()              # upload even when scan fails (secrets found)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: gitleaks

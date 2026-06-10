@@ -1,0 +1,25 @@
+trigger:
+  branches:
+    include:
+      - '*'
+pr:
+  branches:
+    include:
+      - '*'
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    fetchDepth: 0                 # full history — required for gitleaks git .
+
+  - script: bash scripts/gitleaks-scan.sh
+    displayName: Run Gitleaks
+
+  - task: PublishBuildArtifacts@1
+    displayName: Save SARIF report
+    inputs:
+      pathToPublish: results.sarif
+      artifactName: gitleaks-report
+    condition: always()           # save report even when scan fails
