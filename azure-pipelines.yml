@@ -1,3 +1,16 @@
+# =============================================================================
+# Azure Pipelines — Security-gated CI/CD pipeline
+#
+# Gating mechanism:
+#   dependsOn  — declares which stage must complete before this one starts
+#   condition  — succeeded() means "only run if all dependsOn stages passed"
+#
+# If Stage 1 (Security) fails:
+#   Azure marks it Failed, then evaluates condition: succeeded() on Stages 2–4.
+#   succeeded() returns false → those stages are Skipped automatically.
+#   No explicit if/else needed — the dependsOn + condition chain handles it.
+# =============================================================================
+
 trigger:
   branches:
     include:
@@ -7,19 +20,74 @@ pr:
     include:
       - '*'
 
-pool:
-  vmImage: ubuntu-latest
+stages:
 
-steps:
-  - checkout: self
-    fetchDepth: 0                 # full history — required for gitleaks git .
+  # ── Stage 1: Security ────────────────────────────────────────────────────────
+  # No dependsOn — runs unconditionally on every trigger.
+  # scripts/gitleaks-scan.sh installs gitleaks if needed, scans full git
+  # history, and writes results.sarif. Exits 0 (clean) or 1 (secrets found).
+  # The SARIF artifact is saved regardless of outcome (condition: always()).
+  - stage: Security
+    displayName: 'Stage 1 — Security scan'
+    jobs:
+      - job: Gitleaks
+        displayName: Gitleaks
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+            fetchDepth: 0
 
-  - script: bash scripts/gitleaks-scan.sh
-    displayName: Run Gitleaks
+          - script: bash scripts/gitleaks-scan.sh
+            displayName: Run Gitleaks
 
-  - task: PublishBuildArtifacts@1
-    displayName: Save SARIF report
-    inputs:
-      pathToPublish: results.sarif
-      artifactName: gitleaks-report
-    condition: always()           # save report even when scan fails
+          - task: PublishBuildArtifacts@1
+            displayName: Save SARIF report
+            inputs:
+              pathToPublish: results.sarif
+              artifactName:  gitleaks-report
+            condition: always()
+
+  # ── Stage 2: Build ───────────────────────────────────────────────────────────
+  # dependsOn: Security  — waits for Stage 1 to complete
+  # condition: succeeded() — only runs if Stage 1 passed (exit 0)
+  - stage: Build
+    displayName: 'Stage 2 — Build'
+    dependsOn: Security
+    condition: succeeded()
+    jobs:
+      - job: Build
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: echo "Build steps here"
+            displayName: Build
+
+  # ── Stage 3: Test ────────────────────────────────────────────────────────────
+  - stage: Test
+    displayName: 'Stage 3 — Test'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: Test
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: echo "Test steps here"
+            displayName: Test
+
+  # ── Stage 4: Deploy ──────────────────────────────────────────────────────────
+  - stage: Deploy
+    displayName: 'Stage 4 — Deploy'
+    dependsOn: Test
+    condition: succeeded()
+    jobs:
+      - job: Deploy
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: echo "Deploy steps here"
+            displayName: Deploy

@@ -1,13 +1,59 @@
+# =============================================================================
+# GitLab CI/CD — Security-gated CI/CD pipeline
+#
+# Gating mechanism:
+#   stages: lists stages in execution order.
+#   GitLab runs each stage only when ALL jobs in the previous stage passed.
+#   The default job setting is when: on_success — no explicit conditions needed.
+#
+# If Stage 1 (security) fails:
+#   GitLab marks the pipeline Failed and skips stages build, test, deploy.
+#   No additional configuration required — the stages order handles it.
+# =============================================================================
+
+stages:
+  - security   # Stage 1 — runs first, gates everything below
+  - build      # Stage 2 — skipped if security fails
+  - test       # Stage 3 — skipped if build fails
+  - deploy     # Stage 4 — skipped if test fails
+
+# ── Stage 1: Security ─────────────────────────────────────────────────────────
+# GIT_DEPTH: 0 gives gitleaks the full commit history.
+# scripts/gitleaks-scan.sh installs gitleaks if needed and runs the scan.
+# Exits 0 (clean) or 1 (secrets found).
+# artifacts: when: always — SARIF is saved even when the job fails.
 gitleaks:
+  stage: security
   image: ubuntu:22.04
   variables:
-    GIT_DEPTH: 0                  # full history — required for gitleaks git .
+    GIT_DEPTH: 0
   before_script:
     - apt-get update -qq && apt-get install -y -qq curl
   script:
     - bash scripts/gitleaks-scan.sh
   artifacts:
-    when: always                  # save report even when scan fails
+    when: always
     paths:
       - results.sarif
     expire_in: 30 days
+
+# ── Stage 2: Build ────────────────────────────────────────────────────────────
+build:
+  stage: build
+  image: ubuntu:22.04
+  script:
+    - echo "Build steps here"
+
+# ── Stage 3: Test ─────────────────────────────────────────────────────────────
+test:
+  stage: test
+  image: ubuntu:22.04
+  script:
+    - echo "Test steps here"
+
+# ── Stage 4: Deploy ───────────────────────────────────────────────────────────
+deploy:
+  stage: deploy
+  image: ubuntu:22.04
+  script:
+    - echo "Deploy steps here"
