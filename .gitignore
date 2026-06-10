@@ -1,0 +1,31 @@
+# ── Gitleaks scan output ─────────────────────────────────────────────────────
+# These files are written by the scanner at runtime. They must never be
+# committed because they may contain partial secret values from findings.
+report.json
+report.sarif
+report.csv
+report.xml
+report.junit
+git-report.json
+results.json
+results.sarif
+*.sarif
+baseline.json
+new-findings.json
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/

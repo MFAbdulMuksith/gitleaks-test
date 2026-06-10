@@ -1,19 +1,40 @@
-title = "Gitleaks — gitleaks-test"
+title = "Gitleaks configuration"
 
-# ── EXTEND DEFAULT RULESET ───────────────────────────────────────────────────
-# Inherits all 150+ built-in rules (AWS, GitHub, Stripe, GCP, Azure, etc.)
-# then adds project-specific rules and overrides below.
+# =============================================================================
+# EXTEND DEFAULT RULESET
+#
+# useDefault = true inherits all 150+ built-in rules covering AWS, GitHub,
+# Stripe, GCP, Azure, Slack, Twilio, and many more. Custom rules below are
+# added on top of the default set.
+# =============================================================================
 [extend]
 useDefault = true
 
-# Disable generic-api-key to prevent double-match false positives.
-# github-pat is more specific; generic-api-key fires on the same line too.
-# Confirmed double-match: fake-secrets.env:6 fires both github-pat AND
-# generic-api-key for the same GITHUB_TOKEN value. Disabling the generic
-# rule keeps the more accurate specific rule and removes the noise.
+# disabledRules suppresses individual built-in rules that produce too much
+# noise for this repository. Only disable a rule after confirming it fires
+# on non-secret values (double-matches, lock files, etc.).
+#
+# generic-api-key: fires on any high-entropy assignment (KEY=..., TOKEN=...).
+# It double-matches every GitHub PAT alongside the more specific github-pat
+# rule, producing duplicate findings for the same value. The specific rule
+# is kept; the generic one is disabled.
 disabledRules = ["generic-api-key"]
 
-# ── CUSTOM RULES ────────────────────────────────────────────────────────────
+# =============================================================================
+# CUSTOM RULES
+#
+# Add organisation-specific secret patterns here. Each rule needs:
+#   id          — unique identifier used in fingerprints and reports
+#   description — human-readable explanation shown in findings
+#   regex       — Go-flavoured regular expression matching the secret
+#   keywords    — fast pre-filter strings (must appear in the line/file before
+#                 the regex is evaluated — improves scan performance)
+#   tags        — free-form labels for filtering and reporting
+#   secretGroup — (optional) capture group number to extract only the secret
+#                 value, not the variable name. Affects stopword matching.
+#
+# Per-rule allowlists use [[rules.allowlists]] (plural) — valid from v8.21.0.
+# =============================================================================
 
 [[rules]]
 id          = "company-api-key"
@@ -21,6 +42,14 @@ description = "Company internal API key (COMPANY_API_KEY_ prefix)"
 regex       = '''COMPANY_API_KEY_[A-Za-z0-9]{15,}'''
 keywords    = ["COMPANY_API_KEY"]
 tags        = ["custom", "company"]
+
+  # Stopword suppression: if the matched value contains any of these strings
+  # the finding is dropped. The matched value here is the full regex match
+  # (e.g. COMPANY_API_KEY_changeme123456789) so stopwords must be substrings
+  # of that full string.
+  [[rules.allowlists]]
+  description = "Suppress placeholder and test values"
+  stopwords   = ["changeme", "placeholder", "example", "test_key", "dummy"]
 
 [[rules]]
 id          = "internal-jwt-secret"
@@ -31,47 +60,82 @@ tags        = ["custom", "jwt"]
 
 [[rules]]
 id          = "database-connection-string"
-description = "Database URL with embedded password"
+description = "Database connection string with an embedded password"
 regex       = '''(?i)(postgres|mysql|mongodb|mssql):\/\/[^:]+:[^@]{8,}@'''
 keywords    = ["postgres://", "mysql://", "mongodb://", "mssql://"]
 tags        = ["custom", "database"]
 
-    # The regex does a multi-line match. Test assertion strings like
-    # url.startswith("postgres://") trigger the keyword, then the regex
-    # spans across lines into the @patch.dict decorator, producing a false
-    # positive. Exclude test files from this specific rule only.
-    [[rules.allowlists]]
-    description = "Exclude test files from database URL rule (assertion strings, not real URLs)"
-    paths = ['''(^|\/)tests\/.*\.py$''']
+  # Path-based suppression: test files frequently contain assert strings like
+  #   url.startswith("postgres://")
+  # which, combined with a @patch.dict decorator on the next line, produce a
+  # multi-line false positive. Exclude all Python test files from this rule.
+  [[rules.allowlists]]
+  description = "Exclude Python test files — assertion strings, not real credentials"
+  paths       = ['''(^|\/)tests\/.*\.py$''']
 
-# ── GLOBAL ALLOWLIST ─────────────────────────────────────────────────────────
-# NOTE: v8.24.2 uses [allowlist] (singular).
-#       v8.25.0+ uses [[allowlists]] (plural array).
-#       The [[allowlists]] syntax is silently ignored on v8.24.2 — paths will
-#       NOT be suppressed. Use [allowlist] until upgrading to v8.25.0+.
+  # Line-regex suppression: localhost and loopback addresses are never
+  # production credentials. regexTarget = "line" evaluates the entire source
+  # line, not just the matched substring.
+  [[rules.allowlists]]
+  description = "Suppress local and test database URLs"
+  condition   = "OR"
+  regexTarget = "line"
+  regexes     = ['localhost', '127\.0\.0\.1', 'test_password', '0\.0\.0\.0']
+
+# =============================================================================
+# GLOBAL ALLOWLIST
+#
+# VERSION NOTE: v8.24.2 uses [allowlist] (singular).
+#               v8.25.0+ uses [[allowlists]] (plural array).
+#               Using [[allowlists]] on v8.24.2 is silently ignored — paths
+#               will NOT be suppressed. Keep [allowlist] until upgrading.
+#
+# paths    — regex patterns matched against the file path. Matching files are
+#            excluded from all rules entirely.
+# stopwords — if the extracted secret value contains any stopword (case-
+#             insensitive substring match) the finding is suppressed globally.
+# =============================================================================
 [allowlist]
-description = "Paths and values that are never secrets"
+description = "Global path and value exclusions"
 
 paths = [
-  # Gitleaks report output files written by the scanner itself
+  # Gitleaks report output files — written by the scanner itself at runtime.
+  # These may contain partial secret values from findings and must never be
+  # committed, but the scanner should not report on its own output.
   '''(^|\/)results\.(json|sarif)$''',
-  '''(^|\/)report\.(json|csv|xml|sarif)$''',
+  '''(^|\/)report\.(json|csv|xml|sarif|junit)$''',
   '''(^|\/)git-report\.json$''',
-  # The ignore file itself (contains fingerprint strings that look like secrets)
+  '''(^|\/)baseline\.json$''',
+  '''(^|\/)new-findings\.json$''',
+
+  # The ignore file itself contains fingerprint strings (commit SHA:file:rule:line)
+  # that look like secrets. Excluding it prevents self-referential findings.
   '''(^|\/)\.(gitleaks)?ignore$''',
-  # Dependency lock files (contain hash strings that trigger entropy rules)
+
+  # Dependency lock files contain deterministic hash strings that trigger
+  # entropy-based rules. These are never secrets.
   '''(^|\/)package-lock\.json$''',
   '''(^|\/)yarn\.lock$''',
   '''(^|\/)Gemfile\.lock$''',
+  '''(^|\/)poetry\.lock$''',
+  '''(^|\/)go\.sum$''',
+  '''(^|\/)composer\.lock$''',
+
+  # CI/CD tool configuration directories — contain runner state and logs, not secrets.
+  '''(^|\/)\.claude\/''',
 ]
 
-# stopwords: if the extracted secret VALUE contains any of these strings,
-# the finding is suppressed — useful for obvious placeholder patterns.
+# Global stopwords — applied to every rule's extracted secret value.
+# Use these for well-known placeholder patterns that appear across all files.
 stopwords = [
   "example",
   "EXAMPLE",
   "placeholder",
+  "PLACEHOLDER",
   "changeme",
   "CHANGEME",
   "your-secret-here",
+  "insert-secret-here",
+  "todo",
+  "fixme",
 ]

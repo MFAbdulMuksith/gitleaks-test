@@ -1,0 +1,95 @@
+# =============================================================================
+# GitLab CI/CD — Security-gated CI/CD pipeline
+#
+# Gating mechanism
+# ─────────────────
+# The `stages:` list defines execution order. GitLab runs each stage only
+# when ALL jobs in the previous stage have passed. This is the default
+# behaviour (`when: on_success`) — no explicit conditions are required.
+#
+# Stage `security` has no special configuration — it simply runs first
+# because it appears first in the stages list. If the gitleaks job fails,
+# GitLab marks the pipeline as Failed and skips all subsequent stages.
+#
+# `when: always` on the artifact block is required to save results.sarif
+# even when the scan fails (the default `when: on_success` would suppress
+# the artifact upload on a failed job).
+# =============================================================================
+
+# ── STAGE ORDER ───────────────────────────────────────────────────────────────
+# GitLab processes this list top-to-bottom. Each stage is a hard gate for the
+# next. Adding a stage here is all that is needed to place it in the chain.
+stages:
+  - security   # Stage 1 — always runs first; gates everything below
+  - build      # Stage 2 — skipped if security fails
+  - test       # Stage 3 — skipped if build fails
+  - package    # Stage 4 — skipped if test fails
+  - deploy     # Stage 5 — skipped if package fails
+
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 1 — GITLEAKS SECRET SCAN
+#
+# GIT_DEPTH: 0 provides gitleaks with the full commit history so the diff
+# range origin/<base>..HEAD resolves correctly against all branch commits.
+#
+# BASE_BRANCH passes $CI_DEFAULT_BRANCH to gitleaks-scan.sh, which scans
+# only the commits introduced on this branch (diff scan, not full history).
+#
+# before_script installs curl, required by gitleaks-scan.sh on a clean
+# ubuntu:22.04 runner. Omit if your runner image already has curl.
+#
+# Exit 0 → clean. Exit 1 → secrets found → GitLab marks the job Failed.
+# ════════════════════════════════════════════════════════════════════════════
+gitleaks:
+  stage: security
+  image: ubuntu:22.04
+  variables:
+    GIT_DEPTH: 0
+    BASE_BRANCH: $CI_DEFAULT_BRANCH
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl
+  script:
+    - bash scripts/gitleaks-scan.sh
+  artifacts:
+    # when: always — save results.sarif even when the scan fails.
+    # Without this, a failing job would produce no downloadable report.
+    when: always
+    paths:
+      - results.sarif
+    expire_in: 30 days
+
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 2 — BUILD
+# ════════════════════════════════════════════════════════════════════════════
+build:
+  stage: build
+  image: ubuntu:22.04
+  script:
+    - echo "Replace with real build commands"
+
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 3 — TEST
+# ════════════════════════════════════════════════════════════════════════════
+test:
+  stage: test
+  image: ubuntu:22.04
+  script:
+    - echo "Replace with real test commands"
+
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 4 — PACKAGE
+# ════════════════════════════════════════════════════════════════════════════
+package:
+  stage: package
+  image: ubuntu:22.04
+  script:
+    - echo "Replace with real package commands"
+
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 5 — DEPLOY
+# ════════════════════════════════════════════════════════════════════════════
+deploy:
+  stage: deploy
+  image: ubuntu:22.04
+  script:
+    - echo "Replace with real deploy commands"

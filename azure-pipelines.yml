@@ -1,0 +1,135 @@
+# =============================================================================
+# Azure Pipelines — Security-gated CI/CD pipeline
+#
+# Gating mechanism
+# ─────────────────
+# dependsOn  — names the stage that must complete before this one can start.
+# condition  — succeeded() evaluates the stages listed in dependsOn.
+#              If any dependency failed or was skipped, succeeded() returns
+#              false and Azure skips the current stage automatically.
+#
+# Stage 1 has no dependsOn — it always runs first on every trigger.
+# Stages 2–5 each depend on the previous stage through the chain below.
+# A Stage 1 failure causes all downstream stages to be Skipped, not Failed,
+# which is the correct behaviour for a security gate.
+# =============================================================================
+
+# ── TRIGGERS ─────────────────────────────────────────────────────────────────
+# trigger — runs the pipeline on every branch push.
+# pr      — runs the pipeline for every pull request.
+trigger:
+  branches:
+    include:
+      - '*'
+pr:
+  branches:
+    include:
+      - '*'
+
+stages:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 1 — GITLEAKS SECRET SCAN
+  #
+  # No dependsOn — this stage runs unconditionally on every trigger.
+  # scripts/gitleaks-scan.sh auto-installs gitleaks v8.24.2, fetches the
+  # base branch, and scans only the diff (origin/<base>..HEAD).
+  # Exit 0 → clean. Exit 1 → secrets found → Azure marks stage Failed.
+  # ════════════════════════════════════════════════════════════════════════════
+  - stage: Security
+    displayName: 'Stage 1 — Gitleaks secret scan'
+    jobs:
+      - job: Gitleaks
+        displayName: Gitleaks
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          # fetchDepth: 0 provides the full commit history so the diff range
+          # origin/<base>..HEAD resolves correctly against all branch commits.
+          - checkout: self
+            fetchDepth: 0
+
+          # BASE_BRANCH is set to the PR target branch for pull request builds.
+          # On push (non-PR) builds, $(System.PullRequest.TargetBranch) is empty;
+          # gitleaks-scan.sh falls back to "main" automatically.
+          - script: bash scripts/gitleaks-scan.sh
+            displayName: Run Gitleaks
+            env:
+              BASE_BRANCH: $(System.PullRequest.TargetBranch)
+
+          # condition: always() ensures the SARIF report is saved even when
+          # the scan step above failed (i.e., secrets were found).
+          - task: PublishBuildArtifacts@1
+            displayName: Save SARIF report
+            inputs:
+              pathToPublish: results.sarif
+              artifactName:  gitleaks-report
+            condition: always()
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 2 — BUILD
+  #
+  # dependsOn: Security  — waits for Stage 1 to complete.
+  # condition: succeeded() — only runs when Stage 1 exited cleanly (exit 0).
+  # If Stage 1 failed, Azure evaluates succeeded() → false → Skips this stage.
+  # ════════════════════════════════════════════════════════════════════════════
+  - stage: Build
+    displayName: 'Stage 2 — Build'
+    dependsOn: Security
+    condition: succeeded()
+    jobs:
+      - job: Build
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: echo "Replace with real build commands"
+            displayName: Build
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 3 — TEST
+  # ════════════════════════════════════════════════════════════════════════════
+  - stage: Test
+    displayName: 'Stage 3 — Test'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: Test
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: echo "Replace with real test commands"
+            displayName: Test
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4 — PACKAGE
+  # ════════════════════════════════════════════════════════════════════════════
+  - stage: Package
+    displayName: 'Stage 4 — Package'
+    dependsOn: Test
+    condition: succeeded()
+    jobs:
+      - job: Package
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: echo "Replace with real package commands"
+            displayName: Package
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 5 — DEPLOY
+  # ════════════════════════════════════════════════════════════════════════════
+  - stage: Deploy
+    displayName: 'Stage 5 — Deploy'
+    dependsOn: Package
+    condition: succeeded()
+    jobs:
+      - job: Deploy
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: echo "Replace with real deploy commands"
+            displayName: Deploy
