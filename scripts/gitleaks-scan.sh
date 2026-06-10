@@ -2,12 +2,16 @@
 # =============================================================================
 # scripts/gitleaks-scan.sh
 #
-# Portable Gitleaks scan — identical behaviour on every CI/CD platform
-# and locally.  Each platform's pipeline config simply calls:
+# Portable Gitleaks diff scan — identical behaviour on every CI/CD platform
+# and locally.  Each platform's pipeline config calls:
 #
-#   bash scripts/gitleaks-scan.sh
+#   BASE_BRANCH=<target> bash scripts/gitleaks-scan.sh
 #
-# Override defaults with environment variables:
+# Environment variables:
+#   BASE_BRANCH        — branch to diff against (required for diff scan)
+#                        Azure Pipelines may pass "refs/heads/main"; the
+#                        "refs/heads/" prefix is stripped automatically.
+#                        Falls back to "main" when unset (local runs).
 #   GITLEAKS_VERSION   — binary version to auto-install (default: 8.24.2)
 #   GITLEAKS_CONFIG    — config file path               (default: .gitleaks.toml)
 #   GITLEAKS_REPORT    — SARIF output path              (default: results.sarif)
@@ -17,6 +21,7 @@ set -euo pipefail
 GITLEAKS_VERSION="${GITLEAKS_VERSION:-8.24.2}"
 CONFIG="${GITLEAKS_CONFIG:-.gitleaks.toml}"
 REPORT="${GITLEAKS_REPORT:-results.sarif}"
+BASE_BRANCH="${BASE_BRANCH:-}"
 
 # ── Install gitleaks if not already on PATH ──────────────────────────────────
 if ! command -v gitleaks &>/dev/null; then
@@ -34,10 +39,26 @@ echo "[gitleaks] config  : $CONFIG"
 echo "[gitleaks] report  : $REPORT"
 echo
 
-# ── Scan full git history ────────────────────────────────────────────────────
-# Exits 0 (clean) or 1 (secrets found).  The CI platform treats exit 1 as a
-# build failure and stops downstream jobs automatically.
+# ── Resolve base branch ──────────────────────────────────────────────────────
+# Azure Pipelines passes $(System.PullRequest.TargetBranch) as "refs/heads/main".
+# Strip the prefix so git range syntax works: origin/main..HEAD.
+BASE_BRANCH="${BASE_BRANCH#refs/heads/}"
+BASE_BRANCH="${BASE_BRANCH:-main}"
+
+# Ensure the base branch ref exists locally before building the range.
+# --depth=1 is sufficient; we only need the tip commit for the diff boundary.
+git fetch origin "${BASE_BRANCH}" --depth=1 2>/dev/null || true
+
+echo "[gitleaks] scope   : diff vs origin/${BASE_BRANCH}"
+echo
+
+# ── Diff scan ────────────────────────────────────────────────────────────────
+# --log-opts restricts the scan to commits reachable from HEAD but not from
+# origin/<base>. Only secrets introduced on this branch are reported.
+# --exit-code 1 fails the pipeline when secrets are found.
 gitleaks git . \
-  --config  "$CONFIG" \
+  --log-opts="origin/${BASE_BRANCH}..HEAD" \
+  --config        "$CONFIG" \
   --report-format sarif \
-  --report-path   "$REPORT"
+  --report-path   "$REPORT" \
+  --exit-code 1

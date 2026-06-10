@@ -35,11 +35,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # scripts/gitleaks-scan.sh is the portable wrapper used on all three
-      # CI platforms. It auto-installs gitleaks if not on PATH, reads
-      # .gitleaks.toml, and writes results.sarif. Exits 0 (clean) or 1
-      # (secrets found). GitHub treats exit 1 as a job failure.
+      # BASE_BRANCH scopes the scan to commits on this branch that are not yet
+      # on the default branch — only new secrets are reported, not history.
       - name: Run Gitleaks
+        env:
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
         run: bash scripts/gitleaks-scan.sh
 
       # Upload results.sarif to the repository's Security → Code scanning tab.

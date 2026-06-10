@@ -32,8 +32,8 @@ stages:
   # STAGE 1 — GITLEAKS SECRET SCAN
   #
   # No dependsOn — this stage runs unconditionally on every trigger.
-  # scripts/gitleaks-scan.sh auto-installs gitleaks v8.24.2 if not on PATH,
-  # reads .gitleaks.toml, scans full git history, and writes results.sarif.
+  # scripts/gitleaks-scan.sh auto-installs gitleaks v8.24.2, fetches the
+  # base branch, and scans only the diff (origin/<base>..HEAD).
   # Exit 0 → clean. Exit 1 → secrets found → Azure marks stage Failed.
   # ════════════════════════════════════════════════════════════════════════════
   - stage: Security
@@ -44,18 +44,21 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          # fetchDepth: 0 provides the full commit history to gitleaks.
-          # Without this, Azure Pipelines performs a shallow clone and
-          # secrets in older commits are invisible to the scanner.
+          # fetchDepth: 0 provides the full commit history so the diff range
+          # origin/<base>..HEAD resolves correctly against all branch commits.
           - checkout: self
             fetchDepth: 0
 
+          # BASE_BRANCH is set to the PR target branch for pull request builds.
+          # On push (non-PR) builds, $(System.PullRequest.TargetBranch) is empty;
+          # gitleaks-scan.sh falls back to "main" automatically.
           - script: bash scripts/gitleaks-scan.sh
             displayName: Run Gitleaks
+            env:
+              BASE_BRANCH: $(System.PullRequest.TargetBranch)
 
           # condition: always() ensures the SARIF report is saved even when
           # the scan step above failed (i.e., secrets were found).
-          # Without this, a failing scan would produce no downloadable report.
           - task: PublishBuildArtifacts@1
             displayName: Save SARIF report
             inputs:

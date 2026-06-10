@@ -29,16 +29,15 @@ stages:
 # ════════════════════════════════════════════════════════════════════════════
 # STAGE 1 — GITLEAKS SECRET SCAN
 #
-# GIT_DEPTH: 0 provides gitleaks with the full commit history.
-# Without this, GitLab performs a shallow clone and secrets in older
-# commits are invisible to the scanner.
+# GIT_DEPTH: 0 provides gitleaks with the full commit history so the diff
+# range origin/<base>..HEAD resolves correctly against all branch commits.
 #
-# before_script installs curl, which is required by gitleaks-scan.sh
-# to download the gitleaks binary on a clean ubuntu:22.04 runner.
-# If your runner already has curl or gitleaks, before_script can be omitted.
+# BASE_BRANCH passes $CI_DEFAULT_BRANCH to gitleaks-scan.sh, which scans
+# only the commits introduced on this branch (diff scan, not full history).
 #
-# scripts/gitleaks-scan.sh auto-installs gitleaks v8.24.2 if not on PATH,
-# reads .gitleaks.toml, scans full git history, and writes results.sarif.
+# before_script installs curl, required by gitleaks-scan.sh on a clean
+# ubuntu:22.04 runner. Omit if your runner image already has curl.
+#
 # Exit 0 → clean. Exit 1 → secrets found → GitLab marks the job Failed.
 # ════════════════════════════════════════════════════════════════════════════
 gitleaks:
@@ -46,6 +45,7 @@ gitleaks:
   image: ubuntu:22.04
   variables:
     GIT_DEPTH: 0
+    BASE_BRANCH: $CI_DEFAULT_BRANCH
   before_script:
     - apt-get update -qq && apt-get install -y -qq curl
   script:
