@@ -22,6 +22,13 @@ regex       = '''COMPANY_API_KEY_[A-Za-z0-9]{15,}'''
 keywords    = ["COMPANY_API_KEY"]
 tags        = ["custom", "company"]
 
+    # Technique 4 — stopword suppression:
+    # If the extracted secret value contains any of these strings the finding
+    # is dropped.  "changeme" / "placeholder" are obviously not real keys.
+    [[rules.allowlists]]
+    description = "Suppress obvious placeholder and test values"
+    stopwords   = ["changeme", "placeholder", "example", "test_key"]
+
 [[rules]]
 id          = "internal-jwt-secret"
 description = "JWT signing secret assigned to a known variable name"
@@ -36,13 +43,22 @@ regex       = '''(?i)(postgres|mysql|mongodb|mssql):\/\/[^:]+:[^@]{8,}@'''
 keywords    = ["postgres://", "mysql://", "mongodb://", "mssql://"]
 tags        = ["custom", "database"]
 
-    # The regex does a multi-line match. Test assertion strings like
-    # url.startswith("postgres://") trigger the keyword, then the regex
-    # spans across lines into the @patch.dict decorator, producing a false
-    # positive. Exclude test files from this specific rule only.
+    # Technique 3 — path-based allowlist:
+    # Test assertion strings (url.startswith("postgres://")) plus the @patch.dict
+    # decorator on the next line cause a multi-line false positive. Exclude
+    # all tests/*.py from this rule entirely.
     [[rules.allowlists]]
     description = "Exclude test files from database URL rule (assertion strings, not real URLs)"
     paths = ['''(^|\/)tests\/.*\.py$''']
+
+    # Technique 5 — regex match against full line:
+    # Local / loopback DB URLs are never production credentials.
+    # regexTarget = "line" evaluates the entire source line, not just the match.
+    [[rules.allowlists]]
+    description = "Suppress localhost and 127.0.0.1 DB URLs — not production credentials"
+    condition   = "OR"
+    regexTarget = "line"
+    regexes     = ['localhost', '127\.0\.0\.1', 'test_password']
 
 # ── GLOBAL ALLOWLIST ─────────────────────────────────────────────────────────
 # NOTE: v8.24.2 uses [allowlist] (singular).
@@ -59,6 +75,8 @@ paths = [
   '''(^|\/)git-report\.json$''',
   # The ignore file itself (contains fingerprint strings that look like secrets)
   '''(^|\/)\.(gitleaks)?ignore$''',
+  # Claude Code config dir — contains shell command history, not secrets
+  '''(^|\/)\.claude\/''',
   # Dependency lock files (contain hash strings that trigger entropy rules)
   '''(^|\/)package-lock\.json$''',
   '''(^|\/)yarn\.lock$''',

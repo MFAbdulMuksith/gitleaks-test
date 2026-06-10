@@ -44,6 +44,13 @@ ff725703394d32ebdb313408e188204edf77d181:fake-secrets.env:database-connection-st
 # that branch is pushed (Actions only receives the branch being pushed, not others).
 9bdaebc6a7064f87e4d65403c6b543e9d8beb5f6:leaked-token.txt:github-pat:1
 
+# ── PHASE 2 — custom-rules-test.env: Technique 2 demonstration ──────────────
+# Technique 2: fingerprint suppression — dir-scan format (file:ruleID:line)
+# This is an intentional fake JWT secret added solely to demonstrate how
+# .gitleaksignore works. Suppressing via fingerprint rather than inline allow
+# shows the technique works on lines you cannot annotate (e.g. committed history).
+tests/fixtures/custom-rules-test.env:internal-jwt-secret:34
+
 # ── FALSE POSITIVES ──────────────────────────────────────────────────────────
 
 # README.md:50 — example terminal output inside Gitleaks documentation.
