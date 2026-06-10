@@ -1,23 +1,44 @@
 # =============================================================================
-# .gitleaksignore — Suppress specific findings by their unique fingerprint.
+# .gitleaksignore — suppress confirmed false-positives by unique fingerprint
 #
-# WHEN TO USE THIS FILE:
-#   Use when a finding is a confirmed false positive that cannot be suppressed
-#   with #gitleaks:allow (because you don't own the file) or an allowlist path.
+# WHEN TO ADD A FINGERPRINT HERE:
+#   Only when the finding is a known fake/test value that cannot be fixed with
+#   #gitleaks:allow (e.g., it is inside a committed diff you cannot rewrite).
 #
 # HOW TO GET FINGERPRINTS:
-#   gitleaks git --report-format json --report-path /tmp/report.json
-#   cat /tmp/report.json | python3 -c "
-#     import json, sys
-#     for f in json.load(sys.stdin):
-#         print(f['Fingerprint'], '|', f['RuleID'], '|', f['File'])
-#   "
+#   gitleaks git --report-format json --report-path /tmp/r.json
+#   jq -r '.[] | "\(.Fingerprint)  # \(.RuleID) — \(.File):\(.StartLine)"' /tmp/r.json
 #
-# FORMAT:  <commit>:<file>:<ruleID>:<line>   (dir scan)
-#       or <commit>:<file>:<ruleID>:<line>   (git scan)
+# FINGERPRINT FORMATS:
+#   dir scan → <file>:<ruleID>:<line>
+#   git scan → <commitSHA>:<file>:<ruleID>:<line>
 # =============================================================================
 
-# README.md line 50 — this is example terminal output inside the Gitleaks
-# documentation itself. The sidekiq-secret pattern matches the demo output
-# string "cafebabe:deadbeef" which is clearly not a real credential.
+# ── HISTORICAL COMMITS — fake test secrets committed intentionally ───────────
+# These are ALL known-fake values committed during initial repo setup.
+# They are suppressed here so `gitleaks git .` exits 0 on master while still
+# detecting any NEW real secrets added to future commits.
+
+# commit d090b31 — "test: add fake secrets for gitleaks testing"
+d090b31e1d52c505f411582f0b86f904b290bdcf:fake-secrets.env:github-pat:6
+d090b31e1d52c505f411582f0b86f904b290bdcf:fake-secrets.env:generic-api-key:6
+
+# commit 6a577be — "PR Secret Test"
+6a577be44e886e82c47c27b4b505b4d26d6e3aaf:github-token.txt:github-pat:1
+
+# commit aa9035c — "test: should be blocked" (deleted in next commit)
+aa9035c0b1daba7baef8aeb92e95d6e05aad4b00:test-hook.txt:stripe-access-token:1
+
+# commit 49992ec — "Enhance Gitleaks configuration"
+49992ecb65da3a5bb3097bed824e1cc82fc54856:pr-secret.txt:company-api-key:1
+49992ecb65da3a5bb3097bed824e1cc82fc54856:fake-secrets.env:internal-jwt-secret:9
+
+# commit ff72570 — "ci: implement full security-gated CI/CD pipeline"
+ff725703394d32ebdb313408e188204edf77d181:fake-secrets.env:internal-jwt-secret:20
+ff725703394d32ebdb313408e188204edf77d181:fake-secrets.env:database-connection-string:24
+
+# ── FALSE POSITIVES ──────────────────────────────────────────────────────────
+
+# README.md:50 — example terminal output inside Gitleaks documentation.
+# The string "cafebabe:deadbeef" matches sidekiq-secret but is clearly not real.
 README.md:sidekiq-secret:50

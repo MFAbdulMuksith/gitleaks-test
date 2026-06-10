@@ -1,0 +1,115 @@
+name: CI Pipeline
+
+# ── TRIGGERS ────────────────────────────────────────────────────────────────
+# Every branch push, every PR targeting master, manual dispatch, and a weekly
+# full-history re-scan every Monday at 02:00 UTC.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * 1"
+
+# ── JOBS ────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # STAGE 1 — SECURITY GATE
+  # Runs first on every trigger. Has NO `needs:` dependency.
+  # All downstream stages depend on this job through the `needs:` chain.
+  # If this job exits non-zero, GitHub Actions automatically skips every job
+  # that lists it (directly or transitively) in its `needs:` array.
+  # ══════════════════════════════════════════════════════════════════════════
+  gitleaks:
+    name: "Stage 1 — Gitleaks security scan"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # required for upload-sarif
+      pull-requests: read       # required for PR annotation comments
+
+    steps:
+      # fetch-depth: 0 fetches full git history across all branches so
+      # Gitleaks can scan every commit, not just the tip.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Official Gitleaks action. Reads .gitleaks.toml automatically.
+      # GITHUB_TOKEN is auto-provided — no extra secrets needed for personal accounts.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Upload SARIF to GitHub Security → Code Scanning Alerts.
+      # if: always() ensures this runs whether Gitleaks passed OR failed,
+      # so findings reach the Security tab even when the job is failing.
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+          category: gitleaks
+
+      # Preserve the SARIF report as a downloadable artifact for 30 days.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report-${{ github.sha }}
+          path: results.sarif
+          retention-days: 30
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # STAGE 2 — BUILD
+  # needs: [gitleaks] — only starts when Stage 1 exits 0 (clean).
+  # If Stage 1 failed, GitHub skips this job automatically. No if: needed.
+  # ══════════════════════════════════════════════════════════════════════════
+  build:
+    name: "Stage 2 — Build"
+    runs-on: ubuntu-latest
+    needs: [gitleaks]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build application
+        run: |
+          echo "================================================="
+          echo "  Stage 1 (Gitleaks) passed — building safely.  "
+          echo "================================================="
+          python3 -m py_compile src/app.py
+          echo "Syntax check passed."
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # STAGE 3 — TEST
+  # needs: [build] — transitively requires gitleaks + build both passing.
+  # ══════════════════════════════════════════════════════════════════════════
+  test:
+    name: "Stage 3 — Test"
+    runs-on: ubuntu-latest
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run test suite
+        run: python3 -m unittest discover -s tests -v
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # STAGE 4 — DEPLOY
+  # needs: [test] — transitively requires gitleaks + build + test all passing.
+  # ══════════════════════════════════════════════════════════════════════════
+  deploy:
+    name: "Stage 4 — Deploy"
+    runs-on: ubuntu-latest
+    needs: [test]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy application
+        run: |
+          echo "All stages passed — deploying."
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"

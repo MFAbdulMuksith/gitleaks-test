@@ -1,82 +1,77 @@
-title = "Gitleaks Configuration — gitleaks-test"
+title = "Gitleaks — gitleaks-test"
 
-# ─── EXTEND DEFAULT RULESET ──────────────────────────────────────────────────
-# useDefault = true loads all 150+ built-in detection rules (AWS, GitHub,
-# Stripe, Slack, GCP, Azure, generic high-entropy strings, and many more).
-# We then add project-specific rules on top of that baseline.
+# ── EXTEND DEFAULT RULESET ───────────────────────────────────────────────────
+# Inherits all 150+ built-in rules (AWS, GitHub, Stripe, GCP, Azure, etc.)
+# then adds project-specific rules and overrides below.
 [extend]
 useDefault = true
 
-# ─── CUSTOM RULES ────────────────────────────────────────────────────────────
-# Each [[rules]] block adds a new detection rule. The id must be unique.
-# Gitleaks uses Go-style regex (no lookaheads/lookbehinds).
+# Disable generic-api-key to prevent double-match false positives.
+# github-pat is more specific; generic-api-key fires on the same line too.
+# Confirmed double-match: fake-secrets.env:6 fires both github-pat AND
+# generic-api-key for the same GITHUB_TOKEN value. Disabling the generic
+# rule keeps the more accurate specific rule and removes the noise.
+disabledRules = ["generic-api-key"]
 
-# Rule: detect company-internal API keys
+# ── CUSTOM RULES ────────────────────────────────────────────────────────────
+
 [[rules]]
 id          = "company-api-key"
 description = "Company internal API key (COMPANY_API_KEY_ prefix)"
 regex       = '''COMPANY_API_KEY_[A-Za-z0-9]{15,}'''
+keywords    = ["COMPANY_API_KEY"]
 tags        = ["custom", "company"]
-keywords    = ["COMPANY_API_KEY"]  # fast pre-filter before running the regex
 
-# Rule: detect JWT signing secrets assigned to known variable names
 [[rules]]
 id          = "internal-jwt-secret"
-description = "JWT signing secret in variable assignment"
+description = "JWT signing secret assigned to a known variable name"
 regex       = '''(?i)(jwt[_-]?secret|signing[_-]?key)\s*[=:]\s*["']?[A-Za-z0-9+/=_\-]{20,}'''
+keywords    = ["jwt_secret", "jwt-secret", "signing_key", "signingkey"]
 tags        = ["custom", "jwt"]
-keywords    = ["jwt", "signing_key", "signingkey"]
 
-# Rule: detect database connection strings with embedded passwords
 [[rules]]
 id          = "database-connection-string"
-description = "Database connection string with embedded password"
+description = "Database URL with embedded password"
 regex       = '''(?i)(postgres|mysql|mongodb|mssql):\/\/[^:]+:[^@]{8,}@'''
-tags        = ["custom", "database"]
 keywords    = ["postgres://", "mysql://", "mongodb://", "mssql://"]
+tags        = ["custom", "database"]
 
-# Rule: detect private key blocks (PEM format)
-[[rules]]
-id          = "pem-private-key"
-description = "PEM-encoded private key block"
-regex       = '''-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
-tags        = ["custom", "pem", "cryptography"]
-keywords    = ["BEGIN", "PRIVATE KEY"]
+    # The regex does a multi-line match. Test assertion strings like
+    # url.startswith("postgres://") trigger the keyword, then the regex
+    # spans across lines into the @patch.dict decorator, producing a false
+    # positive. Exclude test files from this specific rule only.
+    [[rules.allowlists]]
+    description = "Exclude test files from database URL rule (assertion strings, not real URLs)"
+    paths = ['''(^|\/)tests\/.*\.py$''']
 
-# ─── GLOBAL ALLOWLIST ────────────────────────────────────────────────────────
-# Entries here are evaluated BEFORE any rule — if a path, commit, regex, or
-# stopword matches, the entire finding is skipped regardless of rule.
+# ── GLOBAL ALLOWLIST ─────────────────────────────────────────────────────────
+# NOTE: v8.24.2 uses [allowlist] (singular).
+#       v8.25.0+ uses [[allowlists]] (plural array).
+#       The [[allowlists]] syntax is silently ignored on v8.24.2 — paths will
+#       NOT be suppressed. Use [allowlist] until upgrading to v8.25.0+.
 [allowlist]
-description = "Global suppression list for known safe patterns"
+description = "Paths and values that are never secrets"
 
-# Paths: never scan these files (regex against the file path)
 paths = [
-  # Gitleaks report output files — these contain redacted secret data by design
-  '''gitleaks-report\.(json|sarif|csv|xml)''',
-  '''results\.(json|sarif|csv|xml)''',
-  '''report\.(json|sarif|csv|xml)''',
-  '''git-report\.json''',
-  # Ignore files
-  '''\.gitleaksignore''',
-  # Binary and media files
-  '''(.*?)\.(jpg|jpeg|gif|png|bmp|svg|pdf|doc|docx|xls|xlsx|zip|tar|gz)$''',
-  # Dependency lock files (these sometimes contain hash strings that trigger entropy rules)
-  '''package-lock\.json''',
-  '''yarn\.lock''',
-  '''Gemfile\.lock''',
-  '''poetry\.lock''',
+  # Gitleaks report output files written by the scanner itself
+  '''(^|\/)results\.(json|sarif)$''',
+  '''(^|\/)report\.(json|csv|xml|sarif)$''',
+  '''(^|\/)git-report\.json$''',
+  # The ignore file itself (contains fingerprint strings that look like secrets)
+  '''(^|\/)\.(gitleaks)?ignore$''',
+  # Dependency lock files (contain hash strings that trigger entropy rules)
+  '''(^|\/)package-lock\.json$''',
+  '''(^|\/)yarn\.lock$''',
+  '''(^|\/)Gemfile\.lock$''',
 ]
 
-# Stopwords: if the extracted *secret* value contains any of these strings,
-# the finding is suppressed (case-sensitive). Useful for catching placeholder
-# values that match a real secret's format but are clearly not real.
+# stopwords: if the extracted secret VALUE contains any of these strings,
+# the finding is suppressed — useful for obvious placeholder patterns.
 stopwords = [
   "example",
   "EXAMPLE",
   "placeholder",
-  "your-secret-here",
   "changeme",
   "CHANGEME",
-  "TODO",
-  "FIXME",
+  "your-secret-here",
 ]
