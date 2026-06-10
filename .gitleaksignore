@@ -37,6 +37,13 @@ aa9035c0b1daba7baef8aeb92e95d6e05aad4b00:test-hook.txt:stripe-access-token:1
 ff725703394d32ebdb313408e188204edf77d181:fake-secrets.env:internal-jwt-secret:20
 ff725703394d32ebdb313408e188204edf77d181:fake-secrets.env:database-connection-string:24
 
+# commit 9bdaebc — "test: add unsuppressed fake token to trigger Stage 1 failure"
+# Exists only on feature/test-secret branch. gitleaks git . scans ALL local refs
+# (not just HEAD), so this is visible from main. Suppressed here because it is a
+# known intentional test fixture; it WILL trigger Stage 1 on GitHub Actions when
+# that branch is pushed (Actions only receives the branch being pushed, not others).
+9bdaebc6a7064f87e4d65403c6b543e9d8beb5f6:leaked-token.txt:github-pat:1
+
 # ── FALSE POSITIVES ──────────────────────────────────────────────────────────
 
 # README.md:50 — example terminal output inside Gitleaks documentation.
