@@ -1,13 +1,31 @@
 title = "Custom Gitleaks Rules"
 
+# Extend the built-in default ruleset (150+ rules for AWS, GitHub, Stripe, etc.)
+# so we only need to add/override what's specific to this project.
 [extend]
 useDefault = true
 
+# ─── CUSTOM RULES ────────────────────────────────────────────────────────────
+
 [[rules]]
-id = "company-api-key"
-
+id          = "company-api-key"
 description = "Company API Key"
+regex       = '''COMPANY_API_KEY_[A-Za-z0-9]{15,}'''
+tags        = ["custom", "company"]
 
-regex = '''COMPANY_API_KEY_[A-Za-z0-9]{15,}'''
+[[rules]]
+id          = "internal-jwt-secret"
+description = "Internal JWT signing secret variable assignment"
+regex       = '''(?i)(jwt[_-]?secret|signing[_-]?key)\s*[=:]\s*["']?[A-Za-z0-9+/=_-]{20,}'''
+tags        = ["custom", "jwt"]
 
-tags = ["custom"]
+# ─── GLOBAL ALLOWLIST ────────────────────────────────────────────────────────
+# Paths that should NEVER be scanned (report output files, lock files, etc.)
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''report\.(json|csv|xml|sarif)''',
+  '''git-report\.json''',
+  '''\.gitleaksignore''',
+  '''(.*?)(jpg|gif|png|pdf|doc|docx)$''',
+]

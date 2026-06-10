@@ -2,22 +2,42 @@ name: CI Pipeline
 
 on:
   push:
+    branches: ["**"]
   pull_request:
+    branches: ["**"]
 
 jobs:
+  # ── Job 1: Secret scanning — must pass before anything else runs ───────────
   gitleaks:
+    name: Secret Scan (Gitleaks)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # needed to upload SARIF to GitHub Security tab
 
     steps:
-      - name: Checkout
+      - name: Checkout (full history required for git scan)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0        # 0 = all commits; required for gitleaks git mode
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # required for GitHub Orgs only
 
+      # Upload SARIF so findings appear in the GitHub Security → Code Scanning tab
+      - name: Upload SARIF report
+        if: failure()           # only upload when leaks are found (non-zero exit)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: gitleaks
+
+  # ── Job 2: Build — only runs when secret scan is clean ────────────────────
   build:
+    name: Build Application
     needs: gitleaks
     runs-on: ubuntu-latest
 
@@ -28,3 +48,4 @@ jobs:
       - name: Build Application
         run: |
           echo "Building application..."
+          echo "Secret scan passed — safe to build."

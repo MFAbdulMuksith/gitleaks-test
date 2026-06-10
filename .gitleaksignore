@@ -1,0 +1,8 @@
+# .gitleaksignore — fingerprints of known false positives
+# Format: one fingerprint per line
+# Get fingerprints from: gitleaks git --report-format json --report-path report.json
+#                        then read the "Fingerprint" field
+
+# README.md line 50 — this is example output from the Gitleaks documentation,
+# not a real secret. The sidekiq-secret pattern matches the example scan output.
+README.md:sidekiq-secret:50
