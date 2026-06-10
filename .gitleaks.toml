@@ -1,31 +1,82 @@
-title = "Custom Gitleaks Rules"
+title = "Gitleaks Configuration — gitleaks-test"
 
-# Extend the built-in default ruleset (150+ rules for AWS, GitHub, Stripe, etc.)
-# so we only need to add/override what's specific to this project.
+# ─── EXTEND DEFAULT RULESET ──────────────────────────────────────────────────
+# useDefault = true loads all 150+ built-in detection rules (AWS, GitHub,
+# Stripe, Slack, GCP, Azure, generic high-entropy strings, and many more).
+# We then add project-specific rules on top of that baseline.
 [extend]
 useDefault = true
 
 # ─── CUSTOM RULES ────────────────────────────────────────────────────────────
+# Each [[rules]] block adds a new detection rule. The id must be unique.
+# Gitleaks uses Go-style regex (no lookaheads/lookbehinds).
 
+# Rule: detect company-internal API keys
 [[rules]]
 id          = "company-api-key"
-description = "Company API Key"
+description = "Company internal API key (COMPANY_API_KEY_ prefix)"
 regex       = '''COMPANY_API_KEY_[A-Za-z0-9]{15,}'''
 tags        = ["custom", "company"]
+keywords    = ["COMPANY_API_KEY"]  # fast pre-filter before running the regex
 
+# Rule: detect JWT signing secrets assigned to known variable names
 [[rules]]
 id          = "internal-jwt-secret"
-description = "Internal JWT signing secret variable assignment"
-regex       = '''(?i)(jwt[_-]?secret|signing[_-]?key)\s*[=:]\s*["']?[A-Za-z0-9+/=_-]{20,}'''
+description = "JWT signing secret in variable assignment"
+regex       = '''(?i)(jwt[_-]?secret|signing[_-]?key)\s*[=:]\s*["']?[A-Za-z0-9+/=_\-]{20,}'''
 tags        = ["custom", "jwt"]
+keywords    = ["jwt", "signing_key", "signingkey"]
+
+# Rule: detect database connection strings with embedded passwords
+[[rules]]
+id          = "database-connection-string"
+description = "Database connection string with embedded password"
+regex       = '''(?i)(postgres|mysql|mongodb|mssql):\/\/[^:]+:[^@]{8,}@'''
+tags        = ["custom", "database"]
+keywords    = ["postgres://", "mysql://", "mongodb://", "mssql://"]
+
+# Rule: detect private key blocks (PEM format)
+[[rules]]
+id          = "pem-private-key"
+description = "PEM-encoded private key block"
+regex       = '''-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
+tags        = ["custom", "pem", "cryptography"]
+keywords    = ["BEGIN", "PRIVATE KEY"]
 
 # ─── GLOBAL ALLOWLIST ────────────────────────────────────────────────────────
-# Paths that should NEVER be scanned (report output files, lock files, etc.)
+# Entries here are evaluated BEFORE any rule — if a path, commit, regex, or
+# stopword matches, the entire finding is skipped regardless of rule.
 [allowlist]
-description = "Global allowlist"
+description = "Global suppression list for known safe patterns"
+
+# Paths: never scan these files (regex against the file path)
 paths = [
-  '''report\.(json|csv|xml|sarif)''',
+  # Gitleaks report output files — these contain redacted secret data by design
+  '''gitleaks-report\.(json|sarif|csv|xml)''',
+  '''results\.(json|sarif|csv|xml)''',
+  '''report\.(json|sarif|csv|xml)''',
   '''git-report\.json''',
+  # Ignore files
   '''\.gitleaksignore''',
-  '''(.*?)(jpg|gif|png|pdf|doc|docx)$''',
+  # Binary and media files
+  '''(.*?)\.(jpg|jpeg|gif|png|bmp|svg|pdf|doc|docx|xls|xlsx|zip|tar|gz)$''',
+  # Dependency lock files (these sometimes contain hash strings that trigger entropy rules)
+  '''package-lock\.json''',
+  '''yarn\.lock''',
+  '''Gemfile\.lock''',
+  '''poetry\.lock''',
+]
+
+# Stopwords: if the extracted *secret* value contains any of these strings,
+# the finding is suppressed (case-sensitive). Useful for catching placeholder
+# values that match a real secret's format but are clearly not real.
+stopwords = [
+  "example",
+  "EXAMPLE",
+  "placeholder",
+  "your-secret-here",
+  "changeme",
+  "CHANGEME",
+  "TODO",
+  "FIXME",
 ]

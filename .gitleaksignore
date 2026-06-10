@@ -1,8 +1,23 @@
-# .gitleaksignore — fingerprints of known false positives
-# Format: one fingerprint per line
-# Get fingerprints from: gitleaks git --report-format json --report-path report.json
-#                        then read the "Fingerprint" field
+# =============================================================================
+# .gitleaksignore — Suppress specific findings by their unique fingerprint.
+#
+# WHEN TO USE THIS FILE:
+#   Use when a finding is a confirmed false positive that cannot be suppressed
+#   with #gitleaks:allow (because you don't own the file) or an allowlist path.
+#
+# HOW TO GET FINGERPRINTS:
+#   gitleaks git --report-format json --report-path /tmp/report.json
+#   cat /tmp/report.json | python3 -c "
+#     import json, sys
+#     for f in json.load(sys.stdin):
+#         print(f['Fingerprint'], '|', f['RuleID'], '|', f['File'])
+#   "
+#
+# FORMAT:  <commit>:<file>:<ruleID>:<line>   (dir scan)
+#       or <commit>:<file>:<ruleID>:<line>   (git scan)
+# =============================================================================
 
-# README.md line 50 — this is example output from the Gitleaks documentation,
-# not a real secret. The sidekiq-secret pattern matches the example scan output.
+# README.md line 50 — this is example terminal output inside the Gitleaks
+# documentation itself. The sidekiq-secret pattern matches the demo output
+# string "cafebabe:deadbeef" which is clearly not a real credential.
 README.md:sidekiq-secret:50
