@@ -10,6 +10,8 @@ git-report.json
 results.json
 results.sarif
 *.sarif
+baseline.json
+new-findings.json
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
