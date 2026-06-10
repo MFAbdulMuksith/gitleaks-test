@@ -1,46 +1,51 @@
-name: CI Pipeline
+name: CI/CD Pipeline
 
 # ── TRIGGERS ────────────────────────────────────────────────────────────────
-# Every branch push, every PR targeting master, manual dispatch, and a weekly
-# full-history re-scan every Monday at 02:00 UTC.
+# push     — every branch push triggers a full pipeline run.
+# pull_request — PRs targeting main/master run the security gate before merge.
+# workflow_dispatch — manual trigger for on-demand scans or re-runs.
 on:
   push:
-    branches: ["**"]
+    branches: ['**']
   pull_request:
-    branches: [master]
+    branches: [main, master]
   workflow_dispatch:
-  schedule:
-    - cron: "0 2 * * 1"
 
-# ── JOBS ────────────────────────────────────────────────────────────────────
 jobs:
 
-  # ══════════════════════════════════════════════════════════════════════════
-  # STAGE 1 — SECURITY GATE
-  # Runs first on every trigger. Has NO `needs:` dependency.
-  # All downstream stages depend on this job through the `needs:` chain.
-  # If this job exits non-zero, GitHub Actions automatically skips every job
-  # that lists it (directly or transitively) in its `needs:` array.
-  # ══════════════════════════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 1 — GITLEAKS SECRET SCAN
+  #
+  # Runs first on every trigger. Has no `needs:` so it is never skipped.
+  # All downstream jobs declare `needs: [gitleaks]` (directly or transitively),
+  # so GitHub automatically skips them when this job fails.
+  # ════════════════════════════════════════════════════════════════════════════
   gitleaks:
-    name: "Stage 1 — Gitleaks security scan"
+    name: 'Stage 1 — Gitleaks secret scan'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      security-events: write   # required for upload-sarif
-      pull-requests: write      # required to post PR comments via github-script
+      contents: read        # required to checkout the repository
+      security-events: write # required to upload SARIF to the Security tab
 
     steps:
+      # fetch-depth: 0 gives gitleaks the full commit history.
+      # A shallow clone (the default) would miss secrets in older commits.
       - name: Checkout full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # scripts/gitleaks-scan.sh is the portable wrapper used on all three
+      # CI platforms. It auto-installs gitleaks if not on PATH, reads
+      # .gitleaks.toml, and writes results.sarif. Exits 0 (clean) or 1
+      # (secrets found). GitHub treats exit 1 as a job failure.
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/gitleaks-scan.sh
 
+      # Upload results.sarif to the repository's Security → Code scanning tab.
+      # if: always() ensures the report is uploaded even when the scan found
+      # secrets (i.e., the previous step failed). Without this, a failed scan
+      # would produce no visible findings in the Security tab.
       - name: Upload SARIF to Security tab
         if: always()
         uses: github/codeql-action/upload-sarif@v3
@@ -48,14 +53,9 @@ jobs:
           sarif_file: results.sarif
           category: gitleaks
 
-      - name: Upload report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gitleaks-report-${{ github.sha }}
-          path: results.sarif
-          retention-days: 30
-
+      # Post a descriptive comment on the PR when secrets are detected.
+      # failure() is true only when the Run Gitleaks step failed.
+      # This step does not run on push events — only on pull_request triggers.
       - name: Comment on PR when secrets found
         if: failure() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -66,72 +66,67 @@ jobs:
               owner:        context.repo.owner,
               repo:         context.repo.repo,
               body: [
-                '## ⚠️ Gitleaks detected secrets in this PR',
+                '## Gitleaks detected secrets in this PR',
                 '',
-                '**Pipeline stopped. Stages 2–4 will not run.**',
+                'The security scan failed. Stages 2–5 will not run.',
                 '',
-                'Required actions before this PR can merge:',
-                '1. Rotate the exposed credential immediately',
-                '2. Remove it from Git history using git filter-repo',
-                '3. Add fingerprint to .gitleaksignore if false positive',
+                '**Required actions before this PR can merge:**',
+                '1. Rotate the exposed credential immediately.',
+                '2. Remove it from Git history using `git filter-repo`.',
+                '3. If this is a false positive, add the fingerprint to `.gitleaksignore`.',
                 '',
-                'See Security → Code scanning alerts for full details.'
+                'See the **Security → Code scanning alerts** tab for full details.'
               ].join('\n')
             })
 
-  # ══════════════════════════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════════════════════════════════
   # STAGE 2 — BUILD
-  # needs: [gitleaks] — only starts when Stage 1 exits 0 (clean).
-  # If Stage 1 failed, GitHub skips this job automatically. No if: needed.
-  # ══════════════════════════════════════════════════════════════════════════
+  #
+  # needs: [gitleaks] — only starts when Stage 1 exits 0 (no secrets found).
+  # If Stage 1 failed, GitHub automatically skips this job; no explicit
+  # if: condition is required.
+  # ════════════════════════════════════════════════════════════════════════════
   build:
-    name: "Stage 2 — Build"
+    name: 'Stage 2 — Build'
     runs-on: ubuntu-latest
     needs: [gitleaks]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Build
+        run: echo "Replace with real build commands"
 
-      - name: Build application
-        run: |
-          echo "================================================="
-          echo "  Stage 1 (Gitleaks) passed — building safely.  "
-          echo "================================================="
-          python3 -m py_compile src/app.py
-          echo "Syntax check passed."
-
-  # ══════════════════════════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════════════════════════════════
   # STAGE 3 — TEST
-  # needs: [build] — transitively requires gitleaks + build both passing.
-  # ══════════════════════════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════════════════════════════════
   test:
-    name: "Stage 3 — Test"
+    name: 'Stage 3 — Test'
     runs-on: ubuntu-latest
     needs: [build]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Test
+        run: echo "Replace with real test commands"
 
-      - name: Run test suite
-        run: python3 -m unittest discover -s tests -v
-
-  # ══════════════════════════════════════════════════════════════════════════
-  # STAGE 4 — DEPLOY
-  # needs: [test] — transitively requires gitleaks + build + test all passing.
-  # ══════════════════════════════════════════════════════════════════════════
-  deploy:
-    name: "Stage 4 — Deploy"
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4 — PACKAGE
+  # ════════════════════════════════════════════════════════════════════════════
+  package:
+    name: 'Stage 4 — Package'
     runs-on: ubuntu-latest
     needs: [test]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Package
+        run: echo "Replace with real package commands"
 
-      - name: Deploy application
-        run: |
-          echo "All stages passed — deploying."
-          echo "Commit: ${{ github.sha }}"
-          echo "Branch: ${{ github.ref_name }}"
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 5 — DEPLOY
+  # ════════════════════════════════════════════════════════════════════════════
+  deploy:
+    name: 'Stage 5 — Deploy'
+    runs-on: ubuntu-latest
+    needs: [package]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        run: echo "Replace with real deploy commands"

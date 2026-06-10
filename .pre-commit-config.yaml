@@ -1,5 +1,9 @@
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.24.2
+    rev: v8.24.2   # pin to the same version used in scripts/gitleaks-scan.sh
     hooks:
       - id: gitleaks
+        # pass_filenames: false tells the hook to scan the full staged diff
+        # rather than individual files. This is required for gitleaks to
+        # evaluate multi-line patterns and cross-file entropy correctly.
+        pass_filenames: false

@@ -1,27 +1,46 @@
 # =============================================================================
 # GitLab CI/CD — Security-gated CI/CD pipeline
 #
-# Gating mechanism:
-#   stages: lists stages in execution order.
-#   GitLab runs each stage only when ALL jobs in the previous stage passed.
-#   The default job setting is when: on_success — no explicit conditions needed.
+# Gating mechanism
+# ─────────────────
+# The `stages:` list defines execution order. GitLab runs each stage only
+# when ALL jobs in the previous stage have passed. This is the default
+# behaviour (`when: on_success`) — no explicit conditions are required.
 #
-# If Stage 1 (security) fails:
-#   GitLab marks the pipeline Failed and skips stages build, test, deploy.
-#   No additional configuration required — the stages order handles it.
+# Stage `security` has no special configuration — it simply runs first
+# because it appears first in the stages list. If the gitleaks job fails,
+# GitLab marks the pipeline as Failed and skips all subsequent stages.
+#
+# `when: always` on the artifact block is required to save results.sarif
+# even when the scan fails (the default `when: on_success` would suppress
+# the artifact upload on a failed job).
 # =============================================================================
 
+# ── STAGE ORDER ───────────────────────────────────────────────────────────────
+# GitLab processes this list top-to-bottom. Each stage is a hard gate for the
+# next. Adding a stage here is all that is needed to place it in the chain.
 stages:
-  - security   # Stage 1 — runs first, gates everything below
+  - security   # Stage 1 — always runs first; gates everything below
   - build      # Stage 2 — skipped if security fails
   - test       # Stage 3 — skipped if build fails
-  - deploy     # Stage 4 — skipped if test fails
+  - package    # Stage 4 — skipped if test fails
+  - deploy     # Stage 5 — skipped if package fails
 
-# ── Stage 1: Security ─────────────────────────────────────────────────────────
-# GIT_DEPTH: 0 gives gitleaks the full commit history.
-# scripts/gitleaks-scan.sh installs gitleaks if needed and runs the scan.
-# Exits 0 (clean) or 1 (secrets found).
-# artifacts: when: always — SARIF is saved even when the job fails.
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 1 — GITLEAKS SECRET SCAN
+#
+# GIT_DEPTH: 0 provides gitleaks with the full commit history.
+# Without this, GitLab performs a shallow clone and secrets in older
+# commits are invisible to the scanner.
+#
+# before_script installs curl, which is required by gitleaks-scan.sh
+# to download the gitleaks binary on a clean ubuntu:22.04 runner.
+# If your runner already has curl or gitleaks, before_script can be omitted.
+#
+# scripts/gitleaks-scan.sh auto-installs gitleaks v8.24.2 if not on PATH,
+# reads .gitleaks.toml, scans full git history, and writes results.sarif.
+# Exit 0 → clean. Exit 1 → secrets found → GitLab marks the job Failed.
+# ════════════════════════════════════════════════════════════════════════════
 gitleaks:
   stage: security
   image: ubuntu:22.04
@@ -32,28 +51,45 @@ gitleaks:
   script:
     - bash scripts/gitleaks-scan.sh
   artifacts:
+    # when: always — save results.sarif even when the scan fails.
+    # Without this, a failing job would produce no downloadable report.
     when: always
     paths:
       - results.sarif
     expire_in: 30 days
 
-# ── Stage 2: Build ────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 2 — BUILD
+# ════════════════════════════════════════════════════════════════════════════
 build:
   stage: build
   image: ubuntu:22.04
   script:
-    - echo "Build steps here"
+    - echo "Replace with real build commands"
 
-# ── Stage 3: Test ─────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 3 — TEST
+# ════════════════════════════════════════════════════════════════════════════
 test:
   stage: test
   image: ubuntu:22.04
   script:
-    - echo "Test steps here"
+    - echo "Replace with real test commands"
 
-# ── Stage 4: Deploy ───────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 4 — PACKAGE
+# ════════════════════════════════════════════════════════════════════════════
+package:
+  stage: package
+  image: ubuntu:22.04
+  script:
+    - echo "Replace with real package commands"
+
+# ════════════════════════════════════════════════════════════════════════════
+# STAGE 5 — DEPLOY
+# ════════════════════════════════════════════════════════════════════════════
 deploy:
   stage: deploy
   image: ubuntu:22.04
   script:
-    - echo "Deploy steps here"
+    - echo "Replace with real deploy commands"

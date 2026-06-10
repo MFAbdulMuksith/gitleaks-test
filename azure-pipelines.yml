@@ -1,16 +1,22 @@
 # =============================================================================
 # Azure Pipelines — Security-gated CI/CD pipeline
 #
-# Gating mechanism:
-#   dependsOn  — declares which stage must complete before this one starts
-#   condition  — succeeded() means "only run if all dependsOn stages passed"
+# Gating mechanism
+# ─────────────────
+# dependsOn  — names the stage that must complete before this one can start.
+# condition  — succeeded() evaluates the stages listed in dependsOn.
+#              If any dependency failed or was skipped, succeeded() returns
+#              false and Azure skips the current stage automatically.
 #
-# If Stage 1 (Security) fails:
-#   Azure marks it Failed, then evaluates condition: succeeded() on Stages 2–4.
-#   succeeded() returns false → those stages are Skipped automatically.
-#   No explicit if/else needed — the dependsOn + condition chain handles it.
+# Stage 1 has no dependsOn — it always runs first on every trigger.
+# Stages 2–5 each depend on the previous stage through the chain below.
+# A Stage 1 failure causes all downstream stages to be Skipped, not Failed,
+# which is the correct behaviour for a security gate.
 # =============================================================================
 
+# ── TRIGGERS ─────────────────────────────────────────────────────────────────
+# trigger — runs the pipeline on every branch push.
+# pr      — runs the pipeline for every pull request.
 trigger:
   branches:
     include:
@@ -22,25 +28,34 @@ pr:
 
 stages:
 
-  # ── Stage 1: Security ────────────────────────────────────────────────────────
-  # No dependsOn — runs unconditionally on every trigger.
-  # scripts/gitleaks-scan.sh installs gitleaks if needed, scans full git
-  # history, and writes results.sarif. Exits 0 (clean) or 1 (secrets found).
-  # The SARIF artifact is saved regardless of outcome (condition: always()).
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 1 — GITLEAKS SECRET SCAN
+  #
+  # No dependsOn — this stage runs unconditionally on every trigger.
+  # scripts/gitleaks-scan.sh auto-installs gitleaks v8.24.2 if not on PATH,
+  # reads .gitleaks.toml, scans full git history, and writes results.sarif.
+  # Exit 0 → clean. Exit 1 → secrets found → Azure marks stage Failed.
+  # ════════════════════════════════════════════════════════════════════════════
   - stage: Security
-    displayName: 'Stage 1 — Security scan'
+    displayName: 'Stage 1 — Gitleaks secret scan'
     jobs:
       - job: Gitleaks
         displayName: Gitleaks
         pool:
           vmImage: ubuntu-latest
         steps:
+          # fetchDepth: 0 provides the full commit history to gitleaks.
+          # Without this, Azure Pipelines performs a shallow clone and
+          # secrets in older commits are invisible to the scanner.
           - checkout: self
             fetchDepth: 0
 
           - script: bash scripts/gitleaks-scan.sh
             displayName: Run Gitleaks
 
+          # condition: always() ensures the SARIF report is saved even when
+          # the scan step above failed (i.e., secrets were found).
+          # Without this, a failing scan would produce no downloadable report.
           - task: PublishBuildArtifacts@1
             displayName: Save SARIF report
             inputs:
@@ -48,9 +63,13 @@ stages:
               artifactName:  gitleaks-report
             condition: always()
 
-  # ── Stage 2: Build ───────────────────────────────────────────────────────────
-  # dependsOn: Security  — waits for Stage 1 to complete
-  # condition: succeeded() — only runs if Stage 1 passed (exit 0)
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 2 — BUILD
+  #
+  # dependsOn: Security  — waits for Stage 1 to complete.
+  # condition: succeeded() — only runs when Stage 1 exited cleanly (exit 0).
+  # If Stage 1 failed, Azure evaluates succeeded() → false → Skips this stage.
+  # ════════════════════════════════════════════════════════════════════════════
   - stage: Build
     displayName: 'Stage 2 — Build'
     dependsOn: Security
@@ -61,10 +80,12 @@ stages:
           vmImage: ubuntu-latest
         steps:
           - checkout: self
-          - script: echo "Build steps here"
+          - script: echo "Replace with real build commands"
             displayName: Build
 
-  # ── Stage 3: Test ────────────────────────────────────────────────────────────
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 3 — TEST
+  # ════════════════════════════════════════════════════════════════════════════
   - stage: Test
     displayName: 'Stage 3 — Test'
     dependsOn: Build
@@ -75,13 +96,31 @@ stages:
           vmImage: ubuntu-latest
         steps:
           - checkout: self
-          - script: echo "Test steps here"
+          - script: echo "Replace with real test commands"
             displayName: Test
 
-  # ── Stage 4: Deploy ──────────────────────────────────────────────────────────
-  - stage: Deploy
-    displayName: 'Stage 4 — Deploy'
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4 — PACKAGE
+  # ════════════════════════════════════════════════════════════════════════════
+  - stage: Package
+    displayName: 'Stage 4 — Package'
     dependsOn: Test
+    condition: succeeded()
+    jobs:
+      - job: Package
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - script: echo "Replace with real package commands"
+            displayName: Package
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 5 — DEPLOY
+  # ════════════════════════════════════════════════════════════════════════════
+  - stage: Deploy
+    displayName: 'Stage 5 — Deploy'
+    dependsOn: Package
     condition: succeeded()
     jobs:
       - job: Deploy
@@ -89,5 +128,5 @@ stages:
           vmImage: ubuntu-latest
         steps:
           - checkout: self
-          - script: echo "Deploy steps here"
+          - script: echo "Replace with real deploy commands"
             displayName: Deploy
