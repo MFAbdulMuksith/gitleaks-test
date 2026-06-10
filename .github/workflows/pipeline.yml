@@ -28,37 +28,56 @@ jobs:
     permissions:
       contents: read
       security-events: write   # required for upload-sarif
-      pull-requests: read       # required for PR annotation comments
+      pull-requests: write      # required to post PR comments via github-script
 
     steps:
-      # fetch-depth: 0 fetches full git history across all branches so
-      # Gitleaks can scan every commit, not just the tip.
-      - uses: actions/checkout@v4
+      - name: Checkout full history
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Official Gitleaks action. Reads .gitleaks.toml automatically.
-      # GITHUB_TOKEN is auto-provided — no extra secrets needed for personal accounts.
-      - uses: gitleaks/gitleaks-action@v2
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Upload SARIF to GitHub Security → Code Scanning Alerts.
-      # if: always() ensures this runs whether Gitleaks passed OR failed,
-      # so findings reach the Security tab even when the job is failing.
-      - uses: github/codeql-action/upload-sarif@v3
+      - name: Upload SARIF to Security tab
         if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
           category: gitleaks
 
-      # Preserve the SARIF report as a downloadable artifact for 30 days.
-      - uses: actions/upload-artifact@v4
+      - name: Upload report artifact
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report-${{ github.sha }}
           path: results.sarif
           retention-days: 30
+
+      - name: Comment on PR when secrets found
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              body: [
+                '## ⚠️ Gitleaks detected secrets in this PR',
+                '',
+                '**Pipeline stopped. Stages 2–4 will not run.**',
+                '',
+                'Required actions before this PR can merge:',
+                '1. Rotate the exposed credential immediately',
+                '2. Remove it from Git history using git filter-repo',
+                '3. Add fingerprint to .gitleaksignore if false positive',
+                '',
+                'See Security → Code scanning alerts for full details.'
+              ].join('\n')
+            })
 
   # ══════════════════════════════════════════════════════════════════════════
   # STAGE 2 — BUILD
@@ -71,7 +90,8 @@ jobs:
     needs: [gitleaks]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Build application
         run: |
@@ -91,7 +111,8 @@ jobs:
     needs: [build]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Run test suite
         run: python3 -m unittest discover -s tests -v
@@ -106,7 +127,8 @@ jobs:
     needs: [test]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Deploy application
         run: |
